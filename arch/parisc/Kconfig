@@ -79,9 +79,6 @@ config TIME_LOW_RES
 	depends on SMP
 	default y
 
-config HAVE_LATENCYTOP_SUPPORT
-        def_bool y
-
 # unless you want to implement ACPI on PA-RISC ... ;-)
 config PM
 	bool
@@ -107,6 +104,9 @@ config PGTABLE_LEVELS
 	int
 	default 3 if 64BIT && PARISC_PAGE_SIZE_4KB
 	default 2
+
+config SYS_SUPPORTS_HUGETLBFS
+	def_bool y if PA20
 
 source "init/Kconfig"
 
