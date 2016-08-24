@@ -56,23 +56,23 @@ static u8 *container;
 static size_t container_size;
 
 static u32 ucode_new_rev;
-u8 amd_ucode_patch[PATCH_MAX_SIZE];
+static u8 amd_ucode_patch[PATCH_MAX_SIZE];
 static u16 this_equiv_id;
 
 static struct cpio_data ucode_cpio;
 
-/*
- * Microcode patch container file is prepended to the initrd in cpio format.
- * See Documentation/x86/early-microcode.txt
- */
-static __initdata char ucode_path[] = "kernel/x86/microcode/AuthenticAMD.bin";
-
 static struct cpio_data __init find_ucode_in_initrd(void)
 {
-	long offset = 0;
+#ifdef CONFIG_BLK_DEV_INITRD
 	char *path;
 	void *start;
 	size_t size;
+
+	/*
+	 * Microcode patch container file is prepended to the initrd in cpio
+	 * format. See Documentation/x86/early-microcode.txt
+	 */
+	static __initdata char ucode_path[] = "kernel/x86/microcode/AuthenticAMD.bin";
 
 #ifdef CONFIG_X86_32
 	struct boot_params *p;
@@ -89,9 +89,12 @@ static struct cpio_data __init find_ucode_in_initrd(void)
 	path    = ucode_path;
 	start   = (void *)(boot_params.hdr.ramdisk_image + PAGE_OFFSET);
 	size    = boot_params.hdr.ramdisk_size;
-#endif
+#endif /* !CONFIG_X86_32 */
 
-	return find_cpio_data(path, start, size, &offset);
+	return find_cpio_data(path, start, size, NULL);
+#else
+	return (struct cpio_data){ NULL, 0, "" };
+#endif
 }
 
 static size_t compute_container_size(u8 *data, u32 total_size)
@@ -289,11 +292,11 @@ void __init load_ucode_amd_bsp(unsigned int family)
 	size = &ucode_cpio.size;
 #endif
 
-	cp = find_ucode_in_initrd();
-	if (!cp.data) {
-		if (!load_builtin_amd_microcode(&cp, family))
-			return;
-	}
+	if (!load_builtin_amd_microcode(&cp, family))
+		cp = find_ucode_in_initrd();
+
+	if (!(cp.data && cp.size))
+		return;
 
 	*data = cp.data;
 	*size = cp.size;
@@ -352,6 +355,7 @@ void load_ucode_amd_ap(void)
 	unsigned int cpu = smp_processor_id();
 	struct equiv_cpu_entry *eq;
 	struct microcode_amd *mc;
+	u8 *cont = container;
 	u32 rev, eax;
 	u16 eq_id;
 
@@ -368,8 +372,11 @@ void load_ucode_amd_ap(void)
 	if (check_current_patch_level(&rev, false))
 		return;
 
+	/* Add CONFIG_RANDOMIZE_MEMORY offset. */
+	cont += PAGE_OFFSET - __PAGE_OFFSET_BASE;
+
 	eax = cpuid_eax(0x00000001);
-	eq  = (struct equiv_cpu_entry *)(container + CONTAINER_HDR_SZ);
+	eq  = (struct equiv_cpu_entry *)(cont + CONTAINER_HDR_SZ);
 
 	eq_id = find_equiv_id(eq, eax);
 	if (!eq_id)
@@ -431,9 +438,8 @@ int __init save_microcode_in_initrd_amd(void)
 	else
 		container = cont_va;
 
-	if (ucode_new_rev)
-		pr_info("microcode: updated early to new patch_level=0x%08x\n",
-			ucode_new_rev);
+	/* Add CONFIG_RANDOMIZE_MEMORY offset. */
+	container += PAGE_OFFSET - __PAGE_OFFSET_BASE;
 
 	eax   = cpuid_eax(0x00000001);
 	eax   = ((eax >> 8) & 0xf) + ((eax >> 20) & 0xff);
@@ -469,8 +475,7 @@ void reload_ucode_amd(void)
 	if (mc && rev < mc->hdr.patch_id) {
 		if (!__apply_microcode_amd(mc)) {
 			ucode_new_rev = mc->hdr.patch_id;
-			pr_info("microcode: reload patch_level=0x%08x\n",
-				ucode_new_rev);
+			pr_info("reload patch_level=0x%08x\n", ucode_new_rev);
 		}
 	}
 }
@@ -793,15 +798,13 @@ static int verify_and_add_patch(u8 family, u8 *fw, unsigned int leftover)
 		return -EINVAL;
 	}
 
-	patch->data = kzalloc(patch_size, GFP_KERNEL);
+	patch->data = kmemdup(fw + SECTION_HDR_SIZE, patch_size, GFP_KERNEL);
 	if (!patch->data) {
 		pr_err("Patch data allocation failure.\n");
 		kfree(patch);
 		return -EINVAL;
 	}
 
-	/* All looks ok, copy patch... */
-	memcpy(patch->data, fw + SECTION_HDR_SIZE, patch_size);
 	INIT_LIST_HEAD(&patch->plist);
 	patch->patch_id  = mc_hdr->patch_id;
 	patch->equiv_cpu = proc_id;
@@ -953,9 +956,13 @@ struct microcode_ops * __init init_amd_microcode(void)
 	struct cpuinfo_x86 *c = &boot_cpu_data;
 
 	if (c->x86_vendor != X86_VENDOR_AMD || c->x86 < 0x10) {
-		pr_warning("AMD CPU family 0x%x not supported\n", c->x86);
+		pr_warn("AMD CPU family 0x%x not supported\n", c->x86);
 		return NULL;
 	}
+
+	if (ucode_new_rev)
+		pr_info_once("microcode updated early to new patch_level=0x%08x\n",
+			     ucode_new_rev);
 
 	return &microcode_amd_ops;
 }

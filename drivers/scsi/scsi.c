@@ -784,8 +784,9 @@ void scsi_attach_vpd(struct scsi_device *sdev)
 	int pg83_supported = 0;
 	unsigned char __rcu *vpd_buf, *orig_vpd_buf = NULL;
 
-	if (sdev->skip_vpd_pages)
+	if (!scsi_device_supports_vpd(sdev))
 		return;
+
 retry_pg0:
 	vpd_buf = kmalloc(vpd_len, GFP_KERNEL);
 	if (!vpd_buf)
@@ -1159,6 +1160,7 @@ bool scsi_use_blk_mq = true;
 bool scsi_use_blk_mq = false;
 #endif
 module_param_named(use_blk_mq, scsi_use_blk_mq, bool, S_IWUSR | S_IRUGO);
+EXPORT_SYMBOL_GPL(scsi_use_blk_mq);
 
 static int __init init_scsi(void)
 {

@@ -46,7 +46,7 @@ static int ksz8081_phy_fixup(struct phy_device *dev)
 static void __init imx6ul_enet_phy_init(void)
 {
 	if (IS_BUILTIN(CONFIG_PHYLIB))
-		phy_register_fixup_for_uid(PHY_ID_KSZ8081, 0xffffffff,
+		phy_register_fixup_for_uid(PHY_ID_KSZ8081, MICREL_PHY_ID_MASK,
 					   ksz8081_phy_fixup);
 }
 
@@ -64,7 +64,6 @@ static void __init imx6ul_init_machine(void)
 	if (parent == NULL)
 		pr_warn("failed to initialize soc device\n");
 
-	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
 	imx6ul_enet_init();
 	imx_anatop_init();
 	imx6ul_pm_init();
@@ -84,7 +83,7 @@ static void __init imx6ul_init_late(void)
 		platform_device_register_simple("imx6q-cpufreq", -1, NULL, 0);
 }
 
-static const char *imx6ul_dt_compat[] __initconst = {
+static const char * const imx6ul_dt_compat[] __initconst = {
 	"fsl,imx6ul",
 	NULL,
 };

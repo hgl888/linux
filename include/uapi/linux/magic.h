@@ -31,6 +31,7 @@
 #define PSTOREFS_MAGIC		0x6165676C
 #define EFIVARFS_MAGIC		0xde5e81e4
 #define HOSTFS_SUPER_MAGIC	0x00c0ffee
+#define OVERLAYFS_SUPER_MAGIC	0x794c7630
 
 #define MINIX_SUPER_MAGIC	0x137F		/* minix v1 fs, 14 char names */
 #define MINIX_SUPER_MAGIC2	0x138F		/* minix v1 fs, 30 char names */
@@ -77,5 +78,9 @@
 #define BTRFS_TEST_MAGIC	0x73727279
 #define NSFS_MAGIC		0x6e736673
 #define BPF_FS_MAGIC		0xcafe4a11
+/* Since UDF 2.01 is ISO 13346 based... */
+#define UDF_SUPER_MAGIC		0x15013346
+#define BALLOON_KVM_MAGIC	0x13661366
+#define ZSMALLOC_MAGIC		0x58295829
 
 #endif /* __LINUX_MAGIC_H__ */

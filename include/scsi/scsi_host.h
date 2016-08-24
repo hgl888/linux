@@ -37,7 +37,7 @@ struct blk_queue_tags;
  *	 used in one scatter-gather request.
  */
 #define SG_NONE 0
-#define SG_ALL	SCSI_MAX_SG_SEGMENTS
+#define SG_ALL	SG_CHUNK_SIZE
 
 #define MODE_UNKNOWN 0x00
 #define MODE_INITIATOR 0x01
@@ -495,9 +495,6 @@ struct scsi_host_template {
 	 */
 	unsigned int cmd_size;
 	struct scsi_host_cmd_pool *cmd_pool;
-
-	/* temporary flag to disable blk-mq I/O path */
-	bool disable_blk_mq;
 };
 
 /*
@@ -778,7 +775,8 @@ extern bool scsi_use_blk_mq;
 
 static inline bool shost_use_blk_mq(struct Scsi_Host *shost)
 {
-	return shost->use_blk_mq;
+	return scsi_use_blk_mq;
+
 }
 
 extern int scsi_queue_work(struct Scsi_Host *, struct work_struct *);

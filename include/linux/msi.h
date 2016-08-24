@@ -33,12 +33,21 @@ struct platform_msi_desc {
 };
 
 /**
+ * fsl_mc_msi_desc - FSL-MC device specific msi descriptor data
+ * @msi_index:		The index of the MSI descriptor
+ */
+struct fsl_mc_msi_desc {
+	u16				msi_index;
+};
+
+/**
  * struct msi_desc - Descriptor structure for MSI based interrupts
  * @list:	List head for management
  * @irq:	The base interrupt number
  * @nvec_used:	The number of vectors used
  * @dev:	Pointer to the device which uses this descriptor
  * @msg:	The last set MSI message cached for reuse
+ * @affinity:	Optional pointer to a cpu affinity mask for this descriptor
  *
  * @masked:	[PCI MSI/X] Mask bits
  * @is_msix:	[PCI MSI/X] True if MSI-X
@@ -59,6 +68,7 @@ struct msi_desc {
 	unsigned int			nvec_used;
 	struct device			*dev;
 	struct msi_msg			msg;
+	const struct cpumask		*affinity;
 
 	union {
 		/* PCI MSI/X specific data */
@@ -87,6 +97,7 @@ struct msi_desc {
 		 * tree wide cleanup.
 		 */
 		struct platform_msi_desc platform;
+		struct fsl_mc_msi_desc fsl_mc;
 	};
 };
 
@@ -187,7 +198,7 @@ struct msi_domain_info;
  * @msi_free:		Domain specific function to free a MSI interrupts
  * @msi_check:		Callback for verification of the domain/info/dev data
  * @msi_prepare:	Prepare the allocation of the interrupts in the domain
- * @msi_finish:		Optional callbacl to finalize the allocation
+ * @msi_finish:		Optional callback to finalize the allocation
  * @set_desc:		Set the msi descriptor for an interrupt
  * @handle_error:	Optional error handler if the allocation fails
  *
@@ -195,7 +206,7 @@ struct msi_domain_info;
  * msi_create_irq_domain() and related interfaces
  *
  * @msi_check, @msi_prepare, @msi_finish, @set_desc and @handle_error
- * are callbacks used by msi_irq_domain_alloc_irqs() and related
+ * are callbacks used by msi_domain_alloc_irqs() and related
  * interfaces which are based on msi_desc.
  */
 struct msi_domain_ops {
@@ -255,12 +266,12 @@ enum {
 	 * callbacks.
 	 */
 	MSI_FLAG_USE_DEF_CHIP_OPS	= (1 << 1),
-	/* Build identity map between hwirq and irq */
-	MSI_FLAG_IDENTITY_MAP		= (1 << 2),
 	/* Support multiple PCI MSI interrupts */
-	MSI_FLAG_MULTI_PCI_MSI		= (1 << 3),
+	MSI_FLAG_MULTI_PCI_MSI		= (1 << 2),
 	/* Support PCI MSIX interrupts */
-	MSI_FLAG_PCI_MSIX		= (1 << 4),
+	MSI_FLAG_PCI_MSIX		= (1 << 3),
+	/* Needs early activate, required for PCI */
+	MSI_FLAG_ACTIVATE_EARLY		= (1 << 4),
 };
 
 int msi_domain_set_affinity(struct irq_data *data, const struct cpumask *mask,

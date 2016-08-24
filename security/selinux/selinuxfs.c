@@ -380,9 +380,9 @@ static int sel_open_policy(struct inode *inode, struct file *filp)
 		goto err;
 
 	if (i_size_read(inode) != security_policydb_len()) {
-		mutex_lock(&inode->i_mutex);
+		inode_lock(inode);
 		i_size_write(inode, security_policydb_len());
-		mutex_unlock(&inode->i_mutex);
+		inode_unlock(inode);
 	}
 
 	rc = security_read_policy(&plm->data, &plm->len);
@@ -1347,7 +1347,7 @@ static ssize_t sel_write_avc_cache_threshold(struct file *file,
 {
 	char *page;
 	ssize_t ret;
-	int new_value;
+	unsigned int new_value;
 
 	ret = task_has_security(current, SECURITY__SETSECPARAM);
 	if (ret)

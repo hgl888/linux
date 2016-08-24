@@ -6,7 +6,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2015, Intel Corp.
+ * Copyright (C) 2000 - 2016, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -272,11 +272,11 @@ acpi_status acpi_ns_build_internal_name(struct acpi_namestring_info *info)
 			result = &internal_name[i];
 		} else if (num_segments == 2) {
 			internal_name[i] = AML_DUAL_NAME_PREFIX;
-			result = &internal_name[(acpi_size) i + 1];
+			result = &internal_name[(acpi_size)i + 1];
 		} else {
 			internal_name[i] = AML_MULTI_NAME_PREFIX_OP;
-			internal_name[(acpi_size) i + 1] = (char)num_segments;
-			result = &internal_name[(acpi_size) i + 2];
+			internal_name[(acpi_size)i + 1] = (char)num_segments;
+			result = &internal_name[(acpi_size)i + 2];
 		}
 	}
 
@@ -456,7 +456,7 @@ acpi_ns_externalize_name(u32 internal_name_length,
 
 			names_index = prefix_length + 2;
 			num_segments = (u8)
-			    internal_name[(acpi_size) prefix_length + 1];
+			    internal_name[(acpi_size)prefix_length + 1];
 			break;
 
 		case AML_DUAL_NAME_PREFIX:

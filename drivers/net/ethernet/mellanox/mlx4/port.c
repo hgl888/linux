@@ -52,6 +52,7 @@
 
 #define MLX4_FLAG_V_IGNORE_FCS_MASK		0x2
 #define MLX4_IGNORE_FCS_MASK			0x1
+#define MLNX4_TX_MAX_NUMBER			8
 
 void mlx4_init_mac_table(struct mlx4_dev *dev, struct mlx4_mac_table *table)
 {
@@ -193,10 +194,10 @@ int __mlx4_register_mac(struct mlx4_dev *dev, u8 port, u64 mac)
 	if (need_mf_bond) {
 		if (port == 1) {
 			mutex_lock(&table->mutex);
-			mutex_lock(&dup_table->mutex);
+			mutex_lock_nested(&dup_table->mutex, SINGLE_DEPTH_NESTING);
 		} else {
 			mutex_lock(&dup_table->mutex);
-			mutex_lock(&table->mutex);
+			mutex_lock_nested(&table->mutex, SINGLE_DEPTH_NESTING);
 		}
 	} else {
 		mutex_lock(&table->mutex);
@@ -389,10 +390,10 @@ void __mlx4_unregister_mac(struct mlx4_dev *dev, u8 port, u64 mac)
 	if (dup) {
 		if (port == 1) {
 			mutex_lock(&table->mutex);
-			mutex_lock(&dup_table->mutex);
+			mutex_lock_nested(&dup_table->mutex, SINGLE_DEPTH_NESTING);
 		} else {
 			mutex_lock(&dup_table->mutex);
-			mutex_lock(&table->mutex);
+			mutex_lock_nested(&table->mutex, SINGLE_DEPTH_NESTING);
 		}
 	} else {
 		mutex_lock(&table->mutex);
@@ -479,10 +480,10 @@ int __mlx4_replace_mac(struct mlx4_dev *dev, u8 port, int qpn, u64 new_mac)
 	if (dup) {
 		if (port == 1) {
 			mutex_lock(&table->mutex);
-			mutex_lock(&dup_table->mutex);
+			mutex_lock_nested(&dup_table->mutex, SINGLE_DEPTH_NESTING);
 		} else {
 			mutex_lock(&dup_table->mutex);
-			mutex_lock(&table->mutex);
+			mutex_lock_nested(&table->mutex, SINGLE_DEPTH_NESTING);
 		}
 	} else {
 		mutex_lock(&table->mutex);
@@ -588,10 +589,10 @@ int __mlx4_register_vlan(struct mlx4_dev *dev, u8 port, u16 vlan,
 	if (need_mf_bond) {
 		if (port == 1) {
 			mutex_lock(&table->mutex);
-			mutex_lock(&dup_table->mutex);
+			mutex_lock_nested(&dup_table->mutex, SINGLE_DEPTH_NESTING);
 		} else {
 			mutex_lock(&dup_table->mutex);
-			mutex_lock(&table->mutex);
+			mutex_lock_nested(&table->mutex, SINGLE_DEPTH_NESTING);
 		}
 	} else {
 		mutex_lock(&table->mutex);
@@ -764,10 +765,10 @@ void __mlx4_unregister_vlan(struct mlx4_dev *dev, u8 port, u16 vlan)
 	if (dup) {
 		if (port == 1) {
 			mutex_lock(&table->mutex);
-			mutex_lock(&dup_table->mutex);
+			mutex_lock_nested(&dup_table->mutex, SINGLE_DEPTH_NESTING);
 		} else {
 			mutex_lock(&dup_table->mutex);
-			mutex_lock(&table->mutex);
+			mutex_lock_nested(&table->mutex, SINGLE_DEPTH_NESTING);
 		}
 	} else {
 		mutex_lock(&table->mutex);
@@ -1317,6 +1318,19 @@ static int mlx4_common_set_port(struct mlx4_dev *dev, int slave, u32 in_mod,
 			}
 
 			gen_context->mtu = cpu_to_be16(master->max_mtu[port]);
+			/* Slave cannot change Global Pause configuration */
+			if (slave != mlx4_master_func_num(dev) &&
+			    ((gen_context->pptx != master->pptx) ||
+			     (gen_context->pprx != master->pprx))) {
+				gen_context->pptx = master->pptx;
+				gen_context->pprx = master->pprx;
+				mlx4_warn(dev,
+					  "denying Global Pause change for slave:%d\n",
+					  slave);
+			} else {
+				master->pptx = gen_context->pptx;
+				master->pprx = gen_context->pprx;
+			}
 			break;
 		case MLX4_SET_PORT_GID_TABLE:
 			/* change to MULTIPLE entries: number of guest's gids
@@ -1520,6 +1534,8 @@ int mlx4_SET_PORT(struct mlx4_dev *dev, u8 port, int pkey_tbl_sz)
 	return err;
 }
 
+#define SET_PORT_ROCE_2_FLAGS          0x10
+#define MLX4_SET_PORT_ROCE_V1_V2       0x2
 int mlx4_SET_PORT_general(struct mlx4_dev *dev, u8 port, int mtu,
 			  u8 pptx, u8 pfctx, u8 pprx, u8 pfcrx)
 {
@@ -1539,6 +1555,11 @@ int mlx4_SET_PORT_general(struct mlx4_dev *dev, u8 port, int mtu,
 	context->pprx = (pprx * (!pfcrx)) << 7;
 	context->pfcrx = pfcrx;
 
+	if (dev->caps.flags2 & MLX4_DEV_CAP_FLAG2_ROCE_V1_V2) {
+		context->flags |= SET_PORT_ROCE_2_FLAGS;
+		context->roce_mode |=
+			MLX4_SET_PORT_ROCE_V1_V2 << 4;
+	}
 	in_mod = MLX4_SET_PORT_GENERAL << 8 | port;
 	err = mlx4_cmd(dev, mailbox->dma, in_mod, MLX4_SET_PORT_ETH_OPCODE,
 		       MLX4_CMD_SET_PORT, MLX4_CMD_TIME_CLASS_B,
@@ -1995,3 +2016,14 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL(mlx4_get_module_info);
+
+int mlx4_max_tc(struct mlx4_dev *dev)
+{
+	u8 num_tc = dev->caps.max_tc_eth;
+
+	if (!num_tc)
+		num_tc = MLNX4_TX_MAX_NUMBER;
+
+	return num_tc;
+}
+EXPORT_SYMBOL(mlx4_max_tc);

@@ -5,7 +5,7 @@
  *****************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2015, Intel Corp.
+ * Copyright (C) 2000 - 2016, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -128,7 +128,7 @@ union acpi_parse_object *acpi_ps_alloc_op(u16 opcode, u8 *aml)
 	if (op_info->flags & AML_DEFER) {
 		flags = ACPI_PARSEOP_DEFERRED;
 	} else if (op_info->flags & AML_NAMED) {
-		flags = ACPI_PARSEOP_NAMED;
+		flags = ACPI_PARSEOP_NAMED_OBJECT;
 	} else if (opcode == AML_INT_BYTELIST_OP) {
 		flags = ACPI_PARSEOP_BYTELIST;
 	}

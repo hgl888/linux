@@ -649,6 +649,7 @@ D: Configure, Menuconfig, xconfig
 
 N: Mauro Carvalho Chehab
 E: m.chehab@samsung.org
+E: mchehab@osg.samsung.com
 E: mchehab@infradead.org
 D: Media subsystem (V4L/DVB) drivers and core
 D: EDAC drivers and EDAC 3.0 core rework
@@ -768,6 +769,7 @@ D: Z85230 driver
 D: Former security contact point (please use vendor-sec@lst.de)
 D: ex 2.2 maintainer
 D: 2.1.x modular sound
+D: Assigned major/minor numbers maintainer at lanana.org
 S: c/o Red Hat UK Ltd
 S: Alexandra House
 S: Alexandra Terrace
@@ -1855,6 +1857,16 @@ D: Kernel cleanups
 S: Korte Heul 95
 S: 1403 ND  BUSSUM
 S: The Netherlands
+
+N: Martin Kepplinger
+E: martink@posteo.de
+E: martin.kepplinger@theobroma-systems.com
+W: http://www.martinkepplinger.com
+D: mma8452 accelerators iio driver
+D: Kernel cleanups
+S: Garnisonstraße 26
+S: 4020 Linz
+S: Austria
 
 N: Karl Keyte
 E: karl@koft.com
@@ -3044,6 +3056,7 @@ D: PLX USB338x driver
 D: PCA9634 driver
 D: Option GTM671WFS
 D: Fintek F81216A
+D: AD5761 iio driver
 D: Various kernel hacks
 S: Qtechnology A/S
 S: Valby Langgade 142

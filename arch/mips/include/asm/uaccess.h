@@ -88,14 +88,14 @@ extern u64 __ua_limit;
  */
 static inline bool eva_kernel_access(void)
 {
-	if (!config_enabled(CONFIG_EVA))
+	if (!IS_ENABLED(CONFIG_EVA))
 		return false;
 
 	return segment_eq(get_fs(), get_ds());
 }
 
 /*
- * Is a address valid? This does a straighforward calculation rather
+ * Is a address valid? This does a straightforward calculation rather
  * than tests.
  *
  * Address valid if:

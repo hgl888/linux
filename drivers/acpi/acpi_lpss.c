@@ -18,6 +18,7 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/platform_data/clk-lpss.h>
+#include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
 #include <linux/delay.h>
 
@@ -28,6 +29,7 @@ ACPI_MODULE_NAME("acpi_lpss");
 #ifdef CONFIG_X86_INTEL_LPSS
 
 #include <asm/cpu_device_id.h>
+#include <asm/intel-family.h>
 #include <asm/iosf_mbi.h>
 #include <asm/pmc_atom.h>
 
@@ -228,8 +230,8 @@ static const struct lpss_device_desc bsw_spi_dev_desc = {
 #define ICPU(model)	{ X86_VENDOR_INTEL, 6, model, X86_FEATURE_ANY, }
 
 static const struct x86_cpu_id lpss_cpu_ids[] = {
-	ICPU(0x37),	/* Valleyview, Bay Trail */
-	ICPU(0x4c),	/* Braswell, Cherry Trail */
+	ICPU(INTEL_FAM6_ATOM_SILVERMONT1),	/* Valleyview, Bay Trail */
+	ICPU(INTEL_FAM6_ATOM_AIRMONT),	/* Braswell, Cherry Trail */
 	{}
 };
 
@@ -875,13 +877,14 @@ static int acpi_lpss_platform_notify(struct notifier_block *nb,
 
 	switch (action) {
 	case BUS_NOTIFY_BIND_DRIVER:
-		pdev->dev.pm_domain = &acpi_lpss_pm_domain;
+		dev_pm_domain_set(&pdev->dev, &acpi_lpss_pm_domain);
 		break;
 	case BUS_NOTIFY_DRIVER_NOT_BOUND:
 	case BUS_NOTIFY_UNBOUND_DRIVER:
-		pdev->dev.pm_domain = NULL;
+		dev_pm_domain_set(&pdev->dev, NULL);
 		break;
 	case BUS_NOTIFY_ADD_DEVICE:
+		dev_pm_domain_set(&pdev->dev, &acpi_lpss_pm_domain);
 		if (pdata->dev_desc->flags & LPSS_LTR)
 			return sysfs_create_group(&pdev->dev.kobj,
 						  &lpss_attr_group);
@@ -889,6 +892,7 @@ static int acpi_lpss_platform_notify(struct notifier_block *nb,
 	case BUS_NOTIFY_DEL_DEVICE:
 		if (pdata->dev_desc->flags & LPSS_LTR)
 			sysfs_remove_group(&pdev->dev.kobj, &lpss_attr_group);
+		dev_pm_domain_set(&pdev->dev, NULL);
 		break;
 	default:
 		break;

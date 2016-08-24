@@ -102,6 +102,13 @@
 };
 
 &pio {
+	disp_pwm0_pins: disp_pwm0_pins {
+		pins1 {
+			pinmux = <MT8173_PIN_87_DISP_PWM0__FUNC_DISP_PWM0>;
+			output-low;
+		};
+	};
+
 	mmc0_pins_default: mmc0default {
 		pins_cmd_dat {
 			pinmux = <MT8173_PIN_57_MSDC0_DAT0__FUNC_MSDC0_DAT0>,
@@ -200,7 +207,16 @@
 	};
 };
 
+&pwm0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&disp_pwm0_pins>;
+	status = "okay";
+};
+
 &pwrap {
+	/* Only MT8173 E1 needs USB power domain */
+	power-domains = <&scpsys MT8173_POWER_DOMAIN_USB>;
+
 	pmic: mt6397 {
 		compatible = "mediatek,mt6397";
 		interrupt-parent = <&pio>;

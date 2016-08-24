@@ -297,10 +297,13 @@ static int convert_variable_type(Dwarf_Die *vr_die,
 	char sbuf[STRERR_BUFSIZE];
 	int bsize, boffs, total;
 	int ret;
+	char sign;
 
 	/* TODO: check all types */
-	if (cast && strcmp(cast, "string") != 0) {
+	if (cast && strcmp(cast, "string") != 0 &&
+	    strcmp(cast, "s") != 0 && strcmp(cast, "u") != 0) {
 		/* Non string type is OK */
+		/* and respect signedness cast */
 		tvar->type = strdup(cast);
 		return (tvar->type == NULL) ? -ENOMEM : 0;
 	}
@@ -361,6 +364,13 @@ static int convert_variable_type(Dwarf_Die *vr_die,
 		return (tvar->type == NULL) ? -ENOMEM : 0;
 	}
 
+	if (cast && (strcmp(cast, "u") == 0))
+		sign = 'u';
+	else if (cast && (strcmp(cast, "s") == 0))
+		sign = 's';
+	else
+		sign = die_is_signed_type(&type) ? 's' : 'u';
+
 	ret = dwarf_bytesize(&type);
 	if (ret <= 0)
 		/* No size ... try to use default type */
@@ -373,15 +383,14 @@ static int convert_variable_type(Dwarf_Die *vr_die,
 			dwarf_diename(&type), MAX_BASIC_TYPE_BITS);
 		ret = MAX_BASIC_TYPE_BITS;
 	}
-	ret = snprintf(buf, 16, "%c%d",
-		       die_is_signed_type(&type) ? 's' : 'u', ret);
+	ret = snprintf(buf, 16, "%c%d", sign, ret);
 
 formatted:
 	if (ret < 0 || ret >= 16) {
 		if (ret >= 16)
 			ret = -E2BIG;
 		pr_warning("Failed to convert variable type: %s\n",
-			   strerror_r(-ret, sbuf, sizeof(sbuf)));
+			   str_error_r(-ret, sbuf, sizeof(sbuf)));
 		return ret;
 	}
 	tvar->type = strdup(buf);
@@ -553,7 +562,7 @@ static int convert_variable(Dwarf_Die *vr_die, struct probe_finder *pf)
 static int find_variable(Dwarf_Die *sc_die, struct probe_finder *pf)
 {
 	Dwarf_Die vr_die;
-	char buf[32], *ptr;
+	char *buf, *ptr;
 	int ret = 0;
 
 	/* Copy raw parameters */
@@ -563,13 +572,13 @@ static int find_variable(Dwarf_Die *sc_die, struct probe_finder *pf)
 	if (pf->pvar->name)
 		pf->tvar->name = strdup(pf->pvar->name);
 	else {
-		ret = synthesize_perf_probe_arg(pf->pvar, buf, 32);
-		if (ret < 0)
-			return ret;
+		buf = synthesize_perf_probe_arg(pf->pvar);
+		if (!buf)
+			return -ENOMEM;
 		ptr = strchr(buf, ':');	/* Change type separator to _ */
 		if (ptr)
 			*ptr = '_';
-		pf->tvar->name = strdup(buf);
+		pf->tvar->name = buf;
 	}
 	if (pf->tvar->name == NULL)
 		return -ENOMEM;
@@ -686,8 +695,9 @@ static int call_probe_finder(Dwarf_Die *sc_die, struct probe_finder *pf)
 		pf->fb_ops = NULL;
 #if _ELFUTILS_PREREQ(0, 142)
 	} else if (nops == 1 && pf->fb_ops[0].atom == DW_OP_call_frame_cfa &&
-		   pf->cfi != NULL) {
-		if (dwarf_cfi_addrframe(pf->cfi, pf->addr, &frame) != 0 ||
+		   (pf->cfi_eh != NULL || pf->cfi_dbg != NULL)) {
+		if ((dwarf_cfi_addrframe(pf->cfi_eh, pf->addr, &frame) != 0 &&
+		     (dwarf_cfi_addrframe(pf->cfi_dbg, pf->addr, &frame) != 0)) ||
 		    dwarf_frame_cfa(frame, &pf->fb_ops, &nops) != 0) {
 			pr_warning("Failed to get call frame on 0x%jx\n",
 				   (uintmax_t)pf->addr);
@@ -808,7 +818,7 @@ static int find_lazy_match_lines(struct intlist *list,
 	fp = fopen(fname, "r");
 	if (!fp) {
 		pr_warning("Failed to open %s: %s\n", fname,
-			   strerror_r(errno, sbuf, sizeof(sbuf)));
+			   str_error_r(errno, sbuf, sizeof(sbuf)));
 		return -errno;
 	}
 
@@ -1015,8 +1025,7 @@ static int pubname_search_cb(Dwarf *dbg, Dwarf_Global *gl, void *data)
 	return DWARF_CB_OK;
 }
 
-/* Find probe points from debuginfo */
-static int debuginfo__find_probes(struct debuginfo *dbg,
+static int debuginfo__find_probe_location(struct debuginfo *dbg,
 				  struct probe_finder *pf)
 {
 	struct perf_probe_point *pp = &pf->pev->point;
@@ -1024,27 +1033,6 @@ static int debuginfo__find_probes(struct debuginfo *dbg,
 	size_t cuhl;
 	Dwarf_Die *diep;
 	int ret = 0;
-
-#if _ELFUTILS_PREREQ(0, 142)
-	Elf *elf;
-	GElf_Ehdr ehdr;
-	GElf_Shdr shdr;
-
-	/* Get the call frame information from this dwarf */
-	elf = dwarf_getelf(dbg->dbg);
-	if (elf == NULL)
-		return -EINVAL;
-
-	if (gelf_getehdr(elf, &ehdr) == NULL)
-		return -EINVAL;
-
-	if (elf_section_by_name(elf, &ehdr, &shdr, ".eh_frame", NULL) &&
-	    shdr.sh_type == SHT_PROGBITS) {
-		pf->cfi = dwarf_getcfi_elf(elf);
-	} else {
-		pf->cfi = dwarf_getcfi(dbg->dbg);
-	}
-#endif
 
 	off = 0;
 	pf->lcache = intlist__new(NULL);
@@ -1105,6 +1093,39 @@ found:
 	intlist__delete(pf->lcache);
 	pf->lcache = NULL;
 
+	return ret;
+}
+
+/* Find probe points from debuginfo */
+static int debuginfo__find_probes(struct debuginfo *dbg,
+				  struct probe_finder *pf)
+{
+	int ret = 0;
+
+#if _ELFUTILS_PREREQ(0, 142)
+	Elf *elf;
+	GElf_Ehdr ehdr;
+	GElf_Shdr shdr;
+
+	if (pf->cfi_eh || pf->cfi_dbg)
+		return debuginfo__find_probe_location(dbg, pf);
+
+	/* Get the call frame information from this dwarf */
+	elf = dwarf_getelf(dbg->dbg);
+	if (elf == NULL)
+		return -EINVAL;
+
+	if (gelf_getehdr(elf, &ehdr) == NULL)
+		return -EINVAL;
+
+	if (elf_section_by_name(elf, &ehdr, &shdr, ".eh_frame", NULL) &&
+	    shdr.sh_type == SHT_PROGBITS)
+		pf->cfi_eh = dwarf_getcfi_elf(elf);
+
+	pf->cfi_dbg = dwarf_getcfi(dbg->dbg);
+#endif
+
+	ret = debuginfo__find_probe_location(dbg, pf);
 	return ret;
 }
 
@@ -1282,6 +1303,7 @@ static int collect_variables_cb(Dwarf_Die *die_mem, void *data)
 {
 	struct available_var_finder *af = data;
 	struct variable_list *vl;
+	struct strbuf buf = STRBUF_INIT;
 	int tag, ret;
 
 	vl = &af->vls[af->nvls - 1];
@@ -1295,25 +1317,26 @@ static int collect_variables_cb(Dwarf_Die *die_mem, void *data)
 		if (ret == 0 || ret == -ERANGE) {
 			int ret2;
 			bool externs = !af->child;
-			struct strbuf buf;
 
-			strbuf_init(&buf, 64);
+			if (strbuf_init(&buf, 64) < 0)
+				goto error;
 
 			if (probe_conf.show_location_range) {
-				if (!externs) {
-					if (ret)
-						strbuf_addf(&buf, "[INV]\t");
-					else
-						strbuf_addf(&buf, "[VAL]\t");
-				} else
-					strbuf_addf(&buf, "[EXT]\t");
+				if (!externs)
+					ret2 = strbuf_add(&buf,
+						ret ? "[INV]\t" : "[VAL]\t", 6);
+				else
+					ret2 = strbuf_add(&buf, "[EXT]\t", 6);
+				if (ret2)
+					goto error;
 			}
 
 			ret2 = die_get_varname(die_mem, &buf);
 
 			if (!ret2 && probe_conf.show_location_range &&
 				!externs) {
-				strbuf_addf(&buf, "\t");
+				if (strbuf_addch(&buf, '\t') < 0)
+					goto error;
 				ret2 = die_get_var_range(&af->pf.sp_die,
 							die_mem, &buf);
 			}
@@ -1331,6 +1354,10 @@ static int collect_variables_cb(Dwarf_Die *die_mem, void *data)
 		return DIE_FIND_CB_CONTINUE;
 	else
 		return DIE_FIND_CB_SIBLING;
+error:
+	strbuf_release(&buf);
+	pr_debug("Error in strbuf\n");
+	return DIE_FIND_CB_END;
 }
 
 /* Add a found vars into available variables list */

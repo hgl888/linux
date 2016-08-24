@@ -145,11 +145,6 @@ struct throtl_data
 	/* Total Number of queued bios on READ and WRITE lists */
 	unsigned int nr_queued[2];
 
-	/*
-	 * number of total undestroyed groups
-	 */
-	unsigned int nr_undestroyed_grps;
-
 	/* Work for dispatching throttled bios */
 	struct work_struct dispatch_work;
 };
@@ -211,15 +206,14 @@ static struct throtl_data *sq_to_td(struct throtl_service_queue *sq)
  *
  * The messages are prefixed with "throtl BLKG_NAME" if @sq belongs to a
  * throtl_grp; otherwise, just "throtl".
- *
- * TODO: this should be made a function and name formatting should happen
- * after testing whether blktrace is enabled.
  */
 #define throtl_log(sq, fmt, args...)	do {				\
 	struct throtl_grp *__tg = sq_to_tg((sq));			\
 	struct throtl_data *__td = sq_to_td((sq));			\
 									\
 	(void)__td;							\
+	if (likely(!blk_trace_note_message_enabled(__td->queue)))	\
+		break;							\
 	if ((__tg)) {							\
 		char __pbuf[128];					\
 									\
@@ -827,8 +821,8 @@ static void throtl_charge_bio(struct throtl_grp *tg, struct bio *bio)
 	 * second time when it eventually gets issued.  Set it when a bio
 	 * is being charged to a tg.
 	 */
-	if (!(bio->bi_rw & REQ_THROTTLED))
-		bio->bi_rw |= REQ_THROTTLED;
+	if (!(bio->bi_opf & REQ_THROTTLED))
+		bio->bi_opf |= REQ_THROTTLED;
 }
 
 /**
@@ -1405,7 +1399,7 @@ bool blk_throtl_bio(struct request_queue *q, struct blkcg_gq *blkg,
 	WARN_ON_ONCE(!rcu_read_lock_held());
 
 	/* see throtl_charge_bio() */
-	if ((bio->bi_rw & REQ_THROTTLED) || !tg->has_rules[rw])
+	if ((bio->bi_opf & REQ_THROTTLED) || !tg->has_rules[rw])
 		goto out;
 
 	spin_lock_irq(q->queue_lock);
@@ -1484,7 +1478,7 @@ out:
 	 * being issued.
 	 */
 	if (!throttled)
-		bio->bi_rw &= ~REQ_THROTTLED;
+		bio->bi_opf &= ~REQ_THROTTLED;
 	return throttled;
 }
 

@@ -5,7 +5,7 @@
  ******************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2015, Intel Corp.
+ * Copyright (C) 2000 - 2016, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -113,7 +113,7 @@ acpi_size acpi_ns_get_pathname_length(struct acpi_namespace_node *node)
 
 acpi_status
 acpi_ns_handle_to_pathname(acpi_handle target_handle,
-			   struct acpi_buffer * buffer, u8 no_trailing)
+			   struct acpi_buffer *buffer, u8 no_trailing)
 {
 	acpi_status status;
 	struct acpi_namespace_node *node;

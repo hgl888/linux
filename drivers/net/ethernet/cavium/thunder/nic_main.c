@@ -304,6 +304,7 @@ static void nic_set_lmac_vf_mapping(struct nicpf *nic)
 static void nic_init_hw(struct nicpf *nic)
 {
 	int i;
+	u64 cqm_cfg;
 
 	/* Enable NIC HW block */
 	nic_reg_write(nic, NIC_PF_CFG, 0x3);
@@ -340,6 +341,11 @@ static void nic_init_hw(struct nicpf *nic)
 	/* Enable VLAN ethertype matching and stripping */
 	nic_reg_write(nic, NIC_PF_RX_ETYPE_0_7,
 		      (2 << 19) | (ETYPE_ALG_VLAN_STRIP << 16) | ETH_P_8021Q);
+
+	/* Check if HW expected value is higher (could be in future chips) */
+	cqm_cfg = nic_reg_read(nic, NIC_PF_CQM_CFG);
+	if (cqm_cfg < NICPF_CQM_MIN_DROP_LEVEL)
+		nic_reg_write(nic, NIC_PF_CQM_CFG, NICPF_CQM_MIN_DROP_LEVEL);
 }
 
 /* Channel parse index configuration */
@@ -493,6 +499,7 @@ static void nic_tx_channel_cfg(struct nicpf *nic, u8 vnic,
 	u32 rr_quantum;
 	u8 sq_idx = sq->sq_num;
 	u8 pqs_vnic;
+	int svf;
 
 	if (sq->sqs_mode)
 		pqs_vnic = nic->pqs_vf[vnic];
@@ -505,10 +512,19 @@ static void nic_tx_channel_cfg(struct nicpf *nic, u8 vnic,
 	/* 24 bytes for FCS, IPG and preamble */
 	rr_quantum = ((NIC_HW_MAX_FRS + 24) / 4);
 
-	tl4 = (lmac * NIC_TL4_PER_LMAC) + (bgx * NIC_TL4_PER_BGX);
+	if (!sq->sqs_mode) {
+		tl4 = (lmac * NIC_TL4_PER_LMAC) + (bgx * NIC_TL4_PER_BGX);
+	} else {
+		for (svf = 0; svf < MAX_SQS_PER_VF; svf++) {
+			if (nic->vf_sqs[pqs_vnic][svf] == vnic)
+				break;
+		}
+		tl4 = (MAX_LMAC_PER_BGX * NIC_TL4_PER_LMAC);
+		tl4 += (lmac * NIC_TL4_PER_LMAC * MAX_SQS_PER_VF);
+		tl4 += (svf * NIC_TL4_PER_LMAC);
+		tl4 += (bgx * NIC_TL4_PER_BGX);
+	}
 	tl4 += sq_idx;
-	if (sq->sqs_mode)
-		tl4 += vnic * 8;
 
 	tl3 = tl4 / (NIC_MAX_TL4 / NIC_MAX_TL3);
 	nic_reg_write(nic, NIC_PF_QSET_0_127_SQ_0_7_CFG2 |

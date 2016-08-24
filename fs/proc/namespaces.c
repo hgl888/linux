@@ -28,6 +28,9 @@ static const struct proc_ns_operations *ns_entries[] = {
 	&userns_operations,
 #endif
 	&mntns_operations,
+#ifdef CONFIG_CGROUPS
+	&cgroupns_operations,
+#endif
 };
 
 static const char *proc_ns_get_link(struct dentry *dentry,
@@ -46,7 +49,7 @@ static const char *proc_ns_get_link(struct dentry *dentry,
 	if (!task)
 		return error;
 
-	if (ptrace_may_access(task, PTRACE_MODE_READ)) {
+	if (ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS)) {
 		error = ns_get_path(&ns_path, task, ns_ops);
 		if (!error)
 			nd_jump_link(&ns_path);
@@ -67,7 +70,7 @@ static int proc_ns_readlink(struct dentry *dentry, char __user *buffer, int bufl
 	if (!task)
 		return res;
 
-	if (ptrace_may_access(task, PTRACE_MODE_READ)) {
+	if (ptrace_may_access(task, PTRACE_MODE_READ_FSCREDS)) {
 		res = ns_get_name(name, sizeof(name), task, ns_ops);
 		if (res >= 0)
 			res = readlink_copy(buffer, buflen, name);
@@ -136,7 +139,8 @@ out:
 
 const struct file_operations proc_ns_dir_operations = {
 	.read		= generic_read_dir,
-	.iterate	= proc_ns_dir_readdir,
+	.iterate_shared	= proc_ns_dir_readdir,
+	.llseek		= generic_file_llseek,
 };
 
 static struct dentry *proc_ns_dir_lookup(struct inode *dir,

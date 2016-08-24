@@ -28,6 +28,8 @@
 
 #include <uapi/linux/netfilter_bridge.h> /* NF_BR_PRE_ROUTING */
 
+static DEFINE_PER_CPU(struct rnd_state, nft_prandom_state);
+
 void nft_meta_get_eval(const struct nft_expr *expr,
 		       struct nft_regs *regs,
 		       const struct nft_pktinfo *pkt)
@@ -181,6 +183,11 @@ void nft_meta_get_eval(const struct nft_expr *expr,
 		*dest = sock_cgroup_classid(&sk->sk_cgrp_data);
 		break;
 #endif
+	case NFT_META_PRANDOM: {
+		struct rnd_state *state = this_cpu_ptr(&nft_prandom_state);
+		*dest = prandom_u32_state(state);
+		break;
+	}
 	default:
 		WARN_ON(1);
 		goto err;
@@ -191,13 +198,6 @@ err:
 	regs->verdict.code = NFT_BREAK;
 }
 EXPORT_SYMBOL_GPL(nft_meta_get_eval);
-
-/* don't change or set _LOOPBACK, _USER, etc. */
-static bool pkt_type_ok(u32 p)
-{
-	return p == PACKET_HOST || p == PACKET_BROADCAST ||
-	       p == PACKET_MULTICAST || p == PACKET_OTHERHOST;
-}
 
 void nft_meta_set_eval(const struct nft_expr *expr,
 		       struct nft_regs *regs,
@@ -216,11 +216,11 @@ void nft_meta_set_eval(const struct nft_expr *expr,
 		break;
 	case NFT_META_PKTTYPE:
 		if (skb->pkt_type != value &&
-		    pkt_type_ok(value) && pkt_type_ok(skb->pkt_type))
+		    skb_pkt_type_ok(value) && skb_pkt_type_ok(skb->pkt_type))
 			skb->pkt_type = value;
 		break;
 	case NFT_META_NFTRACE:
-		skb->nf_trace = 1;
+		skb->nf_trace = !!value;
 		break;
 	default:
 		WARN_ON(1);
@@ -276,6 +276,10 @@ int nft_meta_get_init(const struct nft_ctx *ctx,
 	case NFT_META_IIFNAME:
 	case NFT_META_OIFNAME:
 		len = IFNAMSIZ;
+		break;
+	case NFT_META_PRANDOM:
+		prandom_init_once(&nft_prandom_state);
+		len = sizeof(u32);
 		break;
 	default:
 		return -EOPNOTSUPP;
