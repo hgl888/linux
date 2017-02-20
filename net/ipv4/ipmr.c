@@ -26,7 +26,7 @@
  *
  */
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/types.h>
 #include <linux/capability.h>
 #include <linux/errno.h>
@@ -137,6 +137,9 @@ static int ipmr_fib_lookup(struct net *net, struct flowi4 *flp4,
 		.flags = FIB_LOOKUP_NOREF,
 	};
 
+	/* update flow if oif or iif point to device enslaved to l3mdev */
+	l3mdev_update_flow(net, flowi4_to_flowi(flp4));
+
 	err = fib_rules_lookup(net->ipv4.mr_rules_ops,
 			       flowi4_to_flowi(flp4), 0, &arg);
 	if (err < 0)
@@ -163,7 +166,9 @@ static int ipmr_rule_action(struct fib_rule *rule, struct flowi *flp,
 		return -EINVAL;
 	}
 
-	mrt = ipmr_get_table(rule->fr_net, rule->table);
+	arg->table = fib_rule_get_table(rule, arg);
+
+	mrt = ipmr_get_table(rule->fr_net, arg->table);
 	if (!mrt)
 		return -EAGAIN;
 	res->mrt = mrt;
@@ -1749,7 +1754,7 @@ static void ipmr_queue_xmit(struct net *net, struct mr_table *mrt,
 		vif->dev->stats.tx_bytes += skb->len;
 	}
 
-	IPCB(skb)->flags |= IPSKB_FORWARDED | IPSKB_FRAG_SEGS;
+	IPCB(skb)->flags |= IPSKB_FORWARDED;
 
 	/* RFC1584 teaches, that DVMRP/PIM router must deliver packets locally
 	 * not only before forwarding, but after forwarding on all output
@@ -1809,6 +1814,12 @@ static void ip_mr_forward(struct net *net, struct mr_table *mrt,
 
 	/* Wrong interface: drop packet and (maybe) send PIM assert. */
 	if (mrt->vif_table[vif].dev != skb->dev) {
+		struct net_device *mdev;
+
+		mdev = l3mdev_master_dev_rcu(mrt->vif_table[vif].dev);
+		if (mdev == skb->dev)
+			goto forward;
+
 		if (rt_is_output_route(skb_rtable(skb))) {
 			/* It is our own packet, looped back.
 			 * Very complicated situation...
@@ -2053,7 +2064,7 @@ static int pim_rcv(struct sk_buff *skb)
 		goto drop;
 
 	pim = (struct pimreghdr *)skb_transport_header(skb);
-	if (pim->type != ((PIM_VERSION << 4) | (PIM_REGISTER)) ||
+	if (pim->type != ((PIM_VERSION << 4) | (PIM_TYPE_REGISTER)) ||
 	    (pim->flags & PIM_NULL_REGISTER) ||
 	    (ip_compute_csum((void *)pim, sizeof(*pim)) != 0 &&
 	     csum_fold(skb_checksum(skb, 0, skb->len, 0))))
@@ -2076,6 +2087,7 @@ static int __ipmr_fill_mroute(struct mr_table *mrt, struct sk_buff *skb,
 	struct rta_mfc_stats mfcs;
 	struct nlattr *mp_attr;
 	struct rtnexthop *nhp;
+	unsigned long lastuse;
 	int ct;
 
 	/* If cache is unresolved, don't try to parse IIF and OIF */
@@ -2105,12 +2117,14 @@ static int __ipmr_fill_mroute(struct mr_table *mrt, struct sk_buff *skb,
 
 	nla_nest_end(skb, mp_attr);
 
+	lastuse = READ_ONCE(c->mfc_un.res.lastuse);
+	lastuse = time_after_eq(jiffies, lastuse) ? jiffies - lastuse : 0;
+
 	mfcs.mfcs_packets = c->mfc_un.res.pkt;
 	mfcs.mfcs_bytes = c->mfc_un.res.bytes;
 	mfcs.mfcs_wrong_if = c->mfc_un.res.wrong_if;
 	if (nla_put_64bit(skb, RTA_MFC_STATS, sizeof(mfcs), &mfcs, RTA_PAD) ||
-	    nla_put_u64_64bit(skb, RTA_EXPIRES,
-			      jiffies_to_clock_t(c->mfc_un.res.lastuse),
+	    nla_put_u64_64bit(skb, RTA_EXPIRES, jiffies_to_clock_t(lastuse),
 			      RTA_PAD))
 		return -EMSGSIZE;
 
@@ -2120,7 +2134,7 @@ static int __ipmr_fill_mroute(struct mr_table *mrt, struct sk_buff *skb,
 
 int ipmr_get_route(struct net *net, struct sk_buff *skb,
 		   __be32 saddr, __be32 daddr,
-		   struct rtmsg *rtm, int nowait)
+		   struct rtmsg *rtm, int nowait, u32 portid)
 {
 	struct mfc_cache *cache;
 	struct mr_table *mrt;
@@ -2165,6 +2179,7 @@ int ipmr_get_route(struct net *net, struct sk_buff *skb,
 			return -ENOMEM;
 		}
 
+		NETLINK_CB(skb2).portid = portid;
 		skb_push(skb2, sizeof(struct iphdr));
 		skb_reset_network_header(skb2);
 		iph = ip_hdr(skb2);

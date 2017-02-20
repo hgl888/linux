@@ -522,6 +522,11 @@ static int srpt_refresh_port(struct srpt_port *sport)
 	if (ret)
 		goto err_query_port;
 
+	snprintf(sport->port_guid, sizeof(sport->port_guid),
+		"0x%016llx%016llx",
+		be64_to_cpu(sport->gid.global.subnet_prefix),
+		be64_to_cpu(sport->gid.global.interface_id));
+
 	if (!sport->mad_agent) {
 		memset(&reg_req, 0, sizeof(reg_req));
 		reg_req.mgmt_class = IB_MGMT_CLASS_DEVICE_MGMT;
@@ -1835,7 +1840,6 @@ static int srpt_cm_req_recv(struct ib_cm_id *cm_id,
 	struct srpt_rdma_ch *ch, *tmp_ch;
 	u32 it_iu_len;
 	int i, ret = 0;
-	unsigned char *p;
 
 	WARN_ON_ONCE(irqs_disabled());
 
@@ -1989,21 +1993,18 @@ static int srpt_cm_req_recv(struct ib_cm_id *cm_id,
 			be64_to_cpu(*(__be64 *)(ch->i_port_id + 8)));
 
 	pr_debug("registering session %s\n", ch->sess_name);
-	p = &ch->sess_name[0];
 
-try_again:
 	ch->sess = target_alloc_session(&sport->port_tpg_1, 0, 0,
-					TARGET_PROT_NORMAL, p, ch, NULL);
+					TARGET_PROT_NORMAL, ch->sess_name, ch,
+					NULL);
+	/* Retry without leading "0x" */
+	if (IS_ERR(ch->sess))
+		ch->sess = target_alloc_session(&sport->port_tpg_1, 0, 0,
+						TARGET_PROT_NORMAL,
+						ch->sess_name + 2, ch, NULL);
 	if (IS_ERR(ch->sess)) {
-		pr_info("Rejected login because no ACL has been"
-			" configured yet for initiator %s.\n", p);
-		/*
-		 * XXX: Hack to retry of ch->i_port_id without leading '0x'
-		 */
-		if (p == &ch->sess_name[0]) {
-			p += 2;
-			goto try_again;
-		}
+		pr_info("Rejected login because no ACL has been configured yet for initiator %s.\n",
+			ch->sess_name);
 		rej->reason = cpu_to_be32((PTR_ERR(ch->sess) == -ENOMEM) ?
 				SRP_LOGIN_REJ_INSUFFICIENT_RESOURCES :
 				SRP_LOGIN_REJ_CHANNEL_LIMIT_REACHED);
@@ -2475,7 +2476,7 @@ static void srpt_add_one(struct ib_device *device)
 	init_waitqueue_head(&sdev->ch_releaseQ);
 	mutex_init(&sdev->mutex);
 
-	sdev->pd = ib_alloc_pd(device);
+	sdev->pd = ib_alloc_pd(device, 0);
 	if (IS_ERR(sdev->pd))
 		goto free_dev;
 
@@ -2548,10 +2549,6 @@ static void srpt_add_one(struct ib_device *device)
 			       sdev->device->name, i);
 			goto err_ring;
 		}
-		snprintf(sport->port_guid, sizeof(sport->port_guid),
-			"0x%016llx%016llx",
-			be64_to_cpu(sport->gid.global.subnet_prefix),
-			be64_to_cpu(sport->gid.global.interface_id));
 	}
 
 	spin_lock(&srpt_dev_lock);

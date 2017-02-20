@@ -6,7 +6,7 @@
 #include <asm/fpu_emulator.h>
 #include <asm/inst.h>
 #include <asm/mipsregs.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /**
  * struct emuframe - The 'emulation' frame structure
@@ -298,5 +298,6 @@ bool do_dsemulret(struct pt_regs *xcp)
 	/* Set EPC to return to post-branch instruction */
 	xcp->cp0_epc = current->thread.bd_emu_cont_pc;
 	pr_debug("dsemulret to 0x%08lx\n", xcp->cp0_epc);
+	MIPS_FPU_EMU_INC_STATS(ds_emul);
 	return true;
 }

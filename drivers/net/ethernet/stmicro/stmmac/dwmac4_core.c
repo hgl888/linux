@@ -102,7 +102,7 @@ static void dwmac4_pmt(struct mac_device_info *hw, unsigned long mode)
 	}
 	if (mode & WAKE_UCAST) {
 		pr_debug("GMAC: WOL on global unicast\n");
-		pmt |= global_unicast;
+		pmt |= power_down | global_unicast | wake_up_frame_en;
 	}
 
 	writel(pmt, ioaddr + GMAC_PMT);
@@ -430,6 +430,12 @@ struct mac_device_info *dwmac4_setup(void __iomem *ioaddr, int mcbins,
 	mac->link.speed = GMAC_CONFIG_FES;
 	mac->mii.addr = GMAC_MDIO_ADDR;
 	mac->mii.data = GMAC_MDIO_DATA;
+	mac->mii.addr_shift = 21;
+	mac->mii.addr_mask = GENMASK(25, 21);
+	mac->mii.reg_shift = 16;
+	mac->mii.reg_mask = GENMASK(20, 16);
+	mac->mii.clk_csr_shift = 8;
+	mac->mii.clk_csr_mask = GENMASK(11, 8);
 
 	/* Get and dump the chip ID */
 	*synopsys_id = stmmac_get_synopsys_id(hwid);

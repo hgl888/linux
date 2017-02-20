@@ -278,6 +278,14 @@ struct scsi_host_template {
 	int (* change_queue_depth)(struct scsi_device *, int);
 
 	/*
+	 * This functions lets the driver expose the queue mapping
+	 * to the block layer.
+	 *
+	 * Status: OPTIONAL
+	 */
+	int (* map_queues)(struct Scsi_Host *shost);
+
+	/*
 	 * This function determines the BIOS parameters for a given
 	 * harddisk.  These tend to be numbers that are made up by
 	 * the host adapter.  Parameters:
@@ -771,12 +779,9 @@ static inline int scsi_host_in_recovery(struct Scsi_Host *shost)
 		shost->tmf_in_progress;
 }
 
-extern bool scsi_use_blk_mq;
-
 static inline bool shost_use_blk_mq(struct Scsi_Host *shost)
 {
-	return scsi_use_blk_mq;
-
+	return shost->use_blk_mq;
 }
 
 extern int scsi_queue_work(struct Scsi_Host *, struct work_struct *);

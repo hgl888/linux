@@ -16,7 +16,7 @@
  *
  */
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/types.h>
 #include <linux/sched.h>
 #include <linux/errno.h>
@@ -636,7 +636,7 @@ static int pim6_rcv(struct sk_buff *skb)
 		goto drop;
 
 	pim = (struct pimreghdr *)skb_transport_header(skb);
-	if (pim->type != ((PIM_VERSION << 4) | PIM_REGISTER) ||
+	if (pim->type != ((PIM_VERSION << 4) | PIM_TYPE_REGISTER) ||
 	    (pim->flags & PIM_NULL_REGISTER) ||
 	    (csum_ipv6_magic(&ipv6_hdr(skb)->saddr, &ipv6_hdr(skb)->daddr,
 			     sizeof(*pim), IPPROTO_PIM,
@@ -2239,6 +2239,7 @@ static int __ip6mr_fill_mroute(struct mr6_table *mrt, struct sk_buff *skb,
 	struct rta_mfc_stats mfcs;
 	struct nlattr *mp_attr;
 	struct rtnexthop *nhp;
+	unsigned long lastuse;
 	int ct;
 
 	/* If cache is unresolved, don't try to parse IIF and OIF */
@@ -2269,12 +2270,14 @@ static int __ip6mr_fill_mroute(struct mr6_table *mrt, struct sk_buff *skb,
 
 	nla_nest_end(skb, mp_attr);
 
+	lastuse = READ_ONCE(c->mfc_un.res.lastuse);
+	lastuse = time_after_eq(jiffies, lastuse) ? jiffies - lastuse : 0;
+
 	mfcs.mfcs_packets = c->mfc_un.res.pkt;
 	mfcs.mfcs_bytes = c->mfc_un.res.bytes;
 	mfcs.mfcs_wrong_if = c->mfc_un.res.wrong_if;
 	if (nla_put_64bit(skb, RTA_MFC_STATS, sizeof(mfcs), &mfcs, RTA_PAD) ||
-	    nla_put_u64_64bit(skb, RTA_EXPIRES,
-			      jiffies_to_clock_t(c->mfc_un.res.lastuse),
+	    nla_put_u64_64bit(skb, RTA_EXPIRES, jiffies_to_clock_t(lastuse),
 			      RTA_PAD))
 		return -EMSGSIZE;
 
@@ -2282,8 +2285,8 @@ static int __ip6mr_fill_mroute(struct mr6_table *mrt, struct sk_buff *skb,
 	return 1;
 }
 
-int ip6mr_get_route(struct net *net,
-		    struct sk_buff *skb, struct rtmsg *rtm, int nowait)
+int ip6mr_get_route(struct net *net, struct sk_buff *skb, struct rtmsg *rtm,
+		    int nowait, u32 portid)
 {
 	int err;
 	struct mr6_table *mrt;
@@ -2328,6 +2331,7 @@ int ip6mr_get_route(struct net *net,
 			return -ENOMEM;
 		}
 
+		NETLINK_CB(skb2).portid = portid;
 		skb_reset_transport_header(skb2);
 
 		skb_put(skb2, sizeof(struct ipv6hdr));

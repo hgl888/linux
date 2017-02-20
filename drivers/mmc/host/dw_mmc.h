@@ -234,9 +234,9 @@
 
 extern int dw_mci_probe(struct dw_mci *host);
 extern void dw_mci_remove(struct dw_mci *host);
-#ifdef CONFIG_PM_SLEEP
-extern int dw_mci_suspend(struct dw_mci *host);
-extern int dw_mci_resume(struct dw_mci *host);
+#ifdef CONFIG_PM
+extern int dw_mci_runtime_suspend(struct device *device);
+extern int dw_mci_runtime_resume(struct device *device);
 #endif
 
 /**
@@ -249,6 +249,8 @@ extern int dw_mci_resume(struct dw_mci *host);
  * @queue_node: List node for placing this node in the @queue list of
  *	&struct dw_mci.
  * @clock: Clock rate configured by set_ios(). Protected by host->lock.
+ * @__clk_old: The last clock value that was requested from core.
+ *	Keeping track of this helps us to avoid spamming the console.
  * @flags: Random state bits associated with the slot.
  * @id: Number of this slot.
  * @sdio_id: Number of this slot in the SDIO interrupt registers.
@@ -263,12 +265,14 @@ struct dw_mci_slot {
 	struct list_head	queue_node;
 
 	unsigned int		clock;
+	unsigned int		__clk_old;
 
 	unsigned long		flags;
 #define DW_MMC_CARD_PRESENT	0
 #define DW_MMC_CARD_NEED_INIT	1
 #define DW_MMC_CARD_NO_LOW_PWR	2
 #define DW_MMC_CARD_NO_USE_HOLD 3
+#define DW_MMC_CARD_NEEDS_POLL	4
 	int			id;
 	int			sdio_id;
 };

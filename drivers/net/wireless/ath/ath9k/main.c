@@ -718,9 +718,12 @@ static int ath9k_start(struct ieee80211_hw *hw)
 	if (!ath_complete_reset(sc, false))
 		ah->reset_power_on = false;
 
-	if (ah->led_pin >= 0)
+	if (ah->led_pin >= 0) {
 		ath9k_hw_set_gpio(ah, ah->led_pin,
 				  (ah->config.led_active_high) ? 1 : 0);
+		ath9k_hw_gpio_request_out(ah, ah->led_pin, NULL,
+					  AR_GPIO_OUTPUT_MUX_AS_OUTPUT);
+	}
 
 	/*
 	 * Reset key cache to sane defaults (all entries cleared) instead of
@@ -864,9 +867,11 @@ static void ath9k_stop(struct ieee80211_hw *hw)
 
 	spin_lock_bh(&sc->sc_pcu_lock);
 
-	if (ah->led_pin >= 0)
+	if (ah->led_pin >= 0) {
 		ath9k_hw_set_gpio(ah, ah->led_pin,
 				  (ah->config.led_active_high) ? 0 : 1);
+		ath9k_hw_gpio_request_in(ah, ah->led_pin, NULL);
+	}
 
 	ath_prepare_reset(sc);
 
@@ -919,7 +924,7 @@ static void ath9k_vif_iter_set_beacon(struct ath9k_vif_iter_data *iter_data,
 	} else {
 		if (iter_data->primary_beacon_vif->type != NL80211_IFTYPE_AP &&
 		    vif->type == NL80211_IFTYPE_AP)
-		iter_data->primary_beacon_vif = vif;
+			iter_data->primary_beacon_vif = vif;
 	}
 
 	iter_data->beacons = true;
@@ -1154,6 +1159,7 @@ void ath9k_calculate_summary_state(struct ath_softc *sc,
 		bool changed = (iter_data.primary_sta != ctx->primary_sta);
 
 		if (iter_data.primary_sta) {
+			iter_data.primary_beacon_vif = iter_data.primary_sta;
 			iter_data.beacons = true;
 			ath9k_set_assoc_state(sc, iter_data.primary_sta,
 					      changed);
@@ -1563,13 +1569,13 @@ static int ath9k_sta_state(struct ieee80211_hw *hw,
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	int ret = 0;
 
-	if (old_state == IEEE80211_STA_AUTH &&
-	    new_state == IEEE80211_STA_ASSOC) {
+	if (old_state == IEEE80211_STA_NOTEXIST &&
+	    new_state == IEEE80211_STA_NONE) {
 		ret = ath9k_sta_add(hw, vif, sta);
 		ath_dbg(common, CONFIG,
 			"Add station: %pM\n", sta->addr);
-	} else if (old_state == IEEE80211_STA_ASSOC &&
-		   new_state == IEEE80211_STA_AUTH) {
+	} else if (old_state == IEEE80211_STA_NONE &&
+		   new_state == IEEE80211_STA_NOTEXIST) {
 		ret = ath9k_sta_remove(hw, vif, sta);
 		ath_dbg(common, CONFIG,
 			"Remove station: %pM\n", sta->addr);
@@ -1896,9 +1902,11 @@ static int ath9k_ampdu_action(struct ieee80211_hw *hw,
 	bool flush = false;
 	int ret = 0;
 	struct ieee80211_sta *sta = params->sta;
+	struct ath_node *an = (struct ath_node *)sta->drv_priv;
 	enum ieee80211_ampdu_mlme_action action = params->action;
 	u16 tid = params->tid;
 	u16 *ssn = &params->ssn;
+	struct ath_atx_tid *atid;
 
 	mutex_lock(&sc->mutex);
 
@@ -1931,9 +1939,9 @@ static int ath9k_ampdu_action(struct ieee80211_hw *hw,
 		ath9k_ps_restore(sc);
 		break;
 	case IEEE80211_AMPDU_TX_OPERATIONAL:
-		ath9k_ps_wakeup(sc);
-		ath_tx_aggr_resume(sc, sta, tid);
-		ath9k_ps_restore(sc);
+		atid = ath_node_to_tid(an, tid);
+		atid->baw_size = IEEE80211_MIN_AMPDU_BUF <<
+			        sta->ht_cap.ampdu_factor;
 		break;
 	default:
 		ath_err(ath9k_hw_common(sc->sc_ah), "Unknown AMPDU action\n");
@@ -2695,4 +2703,5 @@ struct ieee80211_ops ath9k_ops = {
 	.sw_scan_start	    = ath9k_sw_scan_start,
 	.sw_scan_complete   = ath9k_sw_scan_complete,
 	.get_txpower        = ath9k_get_txpower,
+	.wake_tx_queue      = ath9k_wake_tx_queue,
 };

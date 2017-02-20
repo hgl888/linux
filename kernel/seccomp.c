@@ -41,8 +41,7 @@
  *         outside of a lifetime-guarded section.  In general, this
  *         is only needed for handling filters shared across tasks.
  * @prev: points to a previously installed, or inherited, filter
- * @len: the number of instructions in the program
- * @insnsi: the BPF program instructions to evaluate
+ * @prog: the BPF program to evaluate
  *
  * seccomp_filter objects are organized in a tree linked via the @prev
  * pointer.  For any task, it appears to be a singly-linked list starting
@@ -168,8 +167,8 @@ static int seccomp_check_filter(struct sock_filter *filter, unsigned int flen)
 }
 
 /**
- * seccomp_run_filters - evaluates all seccomp filters against @syscall
- * @syscall: number of the current system call
+ * seccomp_run_filters - evaluates all seccomp filters against @sd
+ * @sd: optional seccomp data to be passed to filters
  *
  * Returns valid seccomp BPF response codes.
  */
@@ -195,7 +194,7 @@ static u32 seccomp_run_filters(const struct seccomp_data *sd)
 	 * value always takes priority (ignoring the DATA).
 	 */
 	for (; f; f = f->prev) {
-		u32 cur_ret = BPF_PROG_RUN(f->prog, (void *)sd);
+		u32 cur_ret = BPF_PROG_RUN(f->prog, sd);
 
 		if ((cur_ret & SECCOMP_RET_ACTION) < (ret & SECCOMP_RET_ACTION))
 			ret = cur_ret;
@@ -605,12 +604,16 @@ static int __seccomp_filter(int this_syscall, const struct seccomp_data *sd,
 		ptrace_event(PTRACE_EVENT_SECCOMP, data);
 		/*
 		 * The delivery of a fatal signal during event
-		 * notification may silently skip tracer notification.
-		 * Terminating the task now avoids executing a system
-		 * call that may not be intended.
+		 * notification may silently skip tracer notification,
+		 * which could leave us with a potentially unmodified
+		 * syscall that the tracer would have liked to have
+		 * changed. Since the process is about to die, we just
+		 * force the syscall to be skipped and let the signal
+		 * kill the process and correctly handle any tracer exit
+		 * notifications.
 		 */
 		if (fatal_signal_pending(current))
-			do_exit(SIGSYS);
+			goto skip;
 		/* Check if the tracer forced the syscall to be skipped. */
 		this_syscall = syscall_get_nr(current, task_pt_regs(current));
 		if (this_syscall < 0)
